@@ -13,3 +13,6 @@ jobs:
 
       - name: Run tests
         run: ./full-test.sh
+        
+      - name: Run unit tests
+        run: ./unit-test.sh
