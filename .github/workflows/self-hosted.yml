@@ -1,0 +1,17 @@
+name: Self Hosted Test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+    unit-test:
+        runs-on: self-hosted
+        steps:
+          - name: Run unit test
+            run: ./unit-test.sh
+    full-test:
+        runs-on: self-hosted
+        steps:
+          - name: Run full test
+            run: ./full-test.sh

@@ -1,0 +1,10 @@
+{
+	"InstallScripts" : 
+	[
+		"/home/gaurav-kumar/Documents/Projects/Git_Submission_Assign2/cmake_install.cmake",
+		"/home/gaurav-kumar/Documents/Projects/Git_Submission_Assign2/assignment-autotest/cmake_install.cmake",
+		"/home/gaurav-kumar/Documents/Projects/Git_Submission_Assign2/assignment-autotest/Unity/cmake_install.cmake",
+		"/home/gaurav-kumar/Documents/Projects/Git_Submission_Assign2/assignment-autotest/Unity/src/cmake_install.cmake"
+	],
+	"Parallel" : false
+}
