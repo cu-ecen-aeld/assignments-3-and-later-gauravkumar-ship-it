@@ -7,7 +7,7 @@ set -u
 
 OUTDIR=/tmp/aeld
 KERNEL_REPO=git://git.kernel.org/pub/scm/linux/kernel/git/stable/linux-stable.git
-KERNEL_VERSION=v5.1.10
+KERNEL_VERSION=v5.15.163
 BUSYBOX_VERSION=1_33_1
 FINDER_APP_DIR=$(realpath $(dirname $0))
 ARCH=arm64
@@ -34,7 +34,12 @@ if [ ! -e ${OUTDIR}/linux-stable/arch/${ARCH}/boot/Image ]; then
     echo "Checking out version ${KERNEL_VERSION}"
     git checkout ${KERNEL_VERSION}
 
-    # TODO: Add your kernel build steps here
+    # Build the ARM64 kernel image for QEMU.
+    make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} mrproper
+    make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} defconfig
+    make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} -j4 Image
+    make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} -j4 modules
+    make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} -j4 dtbs
 fi
 
 echo "Adding the Image in outdir"
@@ -48,6 +53,10 @@ then
 fi
 
 # TODO: Create necessary base directories
+mkdir -p ${OUTDIR}/rootfs/{bin,dev,etc,home,lib,proc,sbin,sys,tmp,usr,var}
+mkdir -p ${OUTDIR}/rootfs/usr/{bin,lib,sbin}
+mkdir -p ${OUTDIR}/rootfs/var/log
+mkdir -p ${OUTDIR}/rootfs/{bin,dev,etc,home,lib,proc,sbin,sys,tmp,usr/bin,usr/lib,var/log}
 
 cd "$OUTDIR"
 if [ ! -d "${OUTDIR}/busybox" ]
@@ -56,25 +65,71 @@ git clone git://busybox.net/busybox.git
     cd busybox
     git checkout ${BUSYBOX_VERSION}
     # TODO:  Configure busybox
+    make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} defconfig
 else
     cd busybox
 fi
 
+echo "Building BusyBox"
 # TODO: Make and install busybox
+make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} -j4
+make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} CONFIG_PREFIX=${OUTDIR}/rootfs install
 
 echo "Library dependencies"
-${CROSS_COMPILE}readelf -a bin/busybox | grep "program interpreter"
-${CROSS_COMPILE}readelf -a bin/busybox | grep "Shared library"
+${CROSS_COMPILE}readelf -W -l ${OUTDIR}/rootfs/bin/busybox | grep "Requesting program interpreter"
+${CROSS_COMPILE}readelf -W -d ${OUTDIR}/rootfs/bin/busybox | grep "NEEDED"
 
 # TODO: Add library dependencies to rootfs
+SYSROOT=$(${CROSS_COMPILE}gcc -print-sysroot)
+mkdir -p ${OUTDIR}/rootfs/lib
+
+# AArch64 glibc expects the loader and shared libraries under /lib64 and /usr/lib64
+# in addition to /lib, so create the standard symlink layout expected by the loader.
+ln -sfn lib ${OUTDIR}/rootfs/lib64
+ln -sfn ../lib ${OUTDIR}/rootfs/usr/lib64
+
+# copy the program interpreter
+INTERPRETER=$(${CROSS_COMPILE}readelf -W -l ${OUTDIR}/rootfs/bin/busybox | awk '/Requesting program interpreter/ {print $NF}' | tr -d '[]')
+cp -L "${SYSROOT}${INTERPRETER}" "${OUTDIR}/rootfs/lib/$(basename ${INTERPRETER})"
+
+# copy shared libraries listed by readelf
+${CROSS_COMPILE}readelf -W -d ${OUTDIR}/rootfs/bin/busybox | awk '/NEEDED/ {print $5}' | tr -d '[]' | while read -r lib; do
+    if [ -e "${SYSROOT}/lib/${lib}" ]; then
+        cp -L "${SYSROOT}/lib/${lib}" "${OUTDIR}/rootfs/lib/"
+    elif [ -e "${SYSROOT}/lib64/${lib}" ]; then
+        cp -L "${SYSROOT}/lib64/${lib}" "${OUTDIR}/rootfs/lib/"
+    fi
+done
 
 # TODO: Make device nodes
+sudo mknod -m 666 ${OUTDIR}/rootfs/dev/null c 1 3
+sudo mknod -m 666 ${OUTDIR}/rootfs/dev/console c 5 1
 
 # TODO: Clean and build the writer utility
+echo "Cleaning and building writer utility"
+
+cd ${FINDER_APP_DIR}
+
+make clean
+
+make CROSS_COMPILE=${CROSS_COMPILE}
 
 # TODO: Copy the finder related scripts and executables to the /home directory
 # on the target rootfs
+echo "Copying finder app files into rootfs/home"
+mkdir -p ${OUTDIR}/rootfs/home/conf/
+
+install -m 0755 ${FINDER_APP_DIR}/writer ${OUTDIR}/rootfs/home/
+install -m 0755 ${FINDER_APP_DIR}/writer.sh ${OUTDIR}/rootfs/home/
+install -m 0755 ${FINDER_APP_DIR}/finder.sh ${OUTDIR}/rootfs/home/
+install -m 0755 ${FINDER_APP_DIR}/finder-test.sh ${OUTDIR}/rootfs/home/
+install -m 0755 ${FINDER_APP_DIR}/conf/assignment.txt ${OUTDIR}/rootfs/home/conf/
+install -m 0755 ${FINDER_APP_DIR}/conf/username.txt ${OUTDIR}/rootfs/home/conf/
+install -m 0755 ${FINDER_APP_DIR}/autorun-qemu.sh ${OUTDIR}/rootfs/home/
 
 # TODO: Chown the root directory
+sudo chown -R root:root ${OUTDIR}/rootfs
 
 # TODO: Create initramfs.cpio.gz
+cd ${OUTDIR}/rootfs
+find . -print0 | cpio --null -ov --format=newc --owner root:root | gzip -9 > ${OUTDIR}/initramfs.cpio.gz

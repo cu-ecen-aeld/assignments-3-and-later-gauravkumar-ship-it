@@ -13,7 +13,8 @@
 
 DEBUG = 1
 EXECUTABLE_NAME = writer
-CROSS_COMPILE ?=
+ARCH ?= arm64
+CROSS_COMPILE ?= aarch64-none-linux-gnu-
 
 #CXX_STANDARD = c++17
 CC_WARNINGS = -Wall -Wextra -Wpedantic
